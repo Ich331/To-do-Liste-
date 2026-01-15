@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fokus Liste - Deine Aufgaben</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f1f5f9;
+        }
+
+        .glass-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .custom-checkbox:checked {
+            background-color: #3b82f6;
+            border-color: #3b82f6;
+        }
+
+        /* Versteckt Scrollbars für ein cleanereres Design */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <div class="max-w-2xl mx-auto">
+        <!-- Header -->
+        <header class="mb-8 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold tracking-tight text-white">Aufgaben</h1>
+                <p id="date-display" class="text-slate-400 text-sm"></p>
+            </div>
+            <div id="stats" class="text-right">
+                <span class="text-blue-400 font-semibold" id="pending-count">0</span>
+                <span class="text-slate-500 text-sm"> offen</span>
+            </div>
+        </header>
+
+        <!-- Input Area -->
+        <div class="glass-card rounded-2xl p-6 mb-8 shadow-xl">
+            <div class="flex flex-col gap-4">
+                <input type="text" id="todo-input" 
+                    placeholder="Was steht an?" 
+                    class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white transition-all">
+                
+                <div class="flex flex-wrap gap-3 items-center justify-between">
+                    <div class="flex gap-2">
+                        <input type="datetime-local" id="todo-reminder" 
+                            class="bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                        
+                        <select id="todo-priority" class="bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none">
+                            <option value="low">Niedrig</option>
+                            <option value="medium" selected>Mittel</option>
+                            <option value="high">Hoch</option>
+                        </select>
+                    </div>
+                    
+                    <button onclick="addTodo()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl font-semibold transition-colors shadow-lg shadow-blue-900/20 active:scale-95">
+                        Hinzufügen
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification Request -->
+        <div id="notif-banner" class="hidden mb-6 p-4 bg-amber-900/30 border border-amber-700/50 rounded-xl flex justify-between items-center">
+            <span class="text-amber-200 text-sm">Erinnerungen aktivieren?</span>
+            <button onclick="requestNotificationPermission()" class="text-xs bg-amber-700 hover:bg-amber-600 px-3 py-1 rounded-md text-white transition-colors">Aktivieren</button>
+        </div>
+
+        <!-- List Container -->
+        <div id="todo-list" class="space-y-3">
+            <!-- Items werden hier dynamisch eingefügt -->
+        </div>
+    </div>
+
+    <!-- Custom Modal for Notifications (Fallback) -->
+    <div id="custom-alert" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-sm w-full shadow-2xl">
+            <h3 class="text-xl font-bold mb-2 text-blue-400">Erinnerung!</h3>
+            <p id="alert-text" class="text-slate-300 mb-6"></p>
+            <button onclick="closeAlert()" class="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded-xl font-medium transition-colors">Schließen</button>
+        </div>
+    </div>
+
+    <script>
+        let todos = JSON.parse(localStorage.getItem('my_todos')) || [];
+
+        // Initialisierung
+        window.onload = () => {
+            updateDate();
+            renderTodos();
+            checkNotificationPermission();
+            startReminderInterval();
+        };
+
+        function updateDate() {
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('date-display').innerText = new Date().toLocaleDateString('de-DE', options);
+        }
+
+        function checkNotificationPermission() {
+            if ("Notification" in window && Notification.permission !== "granted") {
+                document.getElementById('notif-banner').classList.remove('hidden');
+            }
+        }
+
+        async function requestNotificationPermission() {
+            if ("Notification" in window) {
+                const permission = await Notification.requestPermission();
+                if (permission === "granted") {
+                    document.getElementById('notif-banner').classList.add('hidden');
+                }
+            }
+        }
+
+        function addTodo() {
+            const input = document.getElementById('todo-input');
+            const reminder = document.getElementById('todo-reminder');
+            const priority = document.getElementById('todo-priority');
+
+            if (!input.value.trim()) return;
+
+            const newTodo = {
+                id: Date.now(),
+                text: input.value,
+                completed: false,
+                reminder: reminder.value || null,
+                priority: priority.value,
+                notified: false
+            };
+
+            todos.unshift(newTodo);
+            saveAndRender();
+            
+            input.value = '';
+            reminder.value = '';
+            priority.value = 'medium';
+        }
+
+        function toggleTodo(id) {
+            todos = todos.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
+            saveAndRender();
+        }
+
+        function deleteTodo(id) {
+            todos = todos.filter(t => t.id !== id);
+            saveAndRender();
+        }
+
+        function saveAndRender() {
+            localStorage.setItem('my_todos', JSON.stringify(todos));
+            renderTodos();
+        }
+
+        function renderTodos() {
+            const list = document.getElementById('todo-list');
+            const pendingCount = document.getElementById('pending-count');
+            list.innerHTML = '';
+
+            const activeTodos = todos.filter(t => !t.completed);
+            pendingCount.innerText = activeTodos.length;
+
+            if (todos.length === 0) {
+                list.innerHTML = `<div class="text-center py-10 text-slate-500 italic">Keine Aufgaben vorhanden.</div>`;
+                return;
+            }
+
+            todos.forEach(todo => {
+                const priorityColors = {
+                    low: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+                    medium: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+                    high: 'bg-red-500/20 text-red-400 border-red-500/30'
+                };
+
+                const item = document.createElement('div');
+                item.className = `glass-card p-4 rounded-xl flex items-center justify-between group transition-all ${todo.completed ? 'opacity-50' : ''}`;
+                
+                const reminderText = todo.reminder ? 
+                    `<span class="text-[10px] mt-1 block text-slate-500">⏰ ${new Date(todo.reminder).toLocaleString('de-DE', {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit'})}</span>` 
+                    : '';
+
+                item.innerHTML = `
+                    <div class="flex items-center gap-4 flex-1">
+                        <input type="checkbox" ${todo.completed ? 'checked' : ''} 
+                            onchange="toggleTodo(${todo.id})"
+                            class="w-5 h-5 rounded-full border-slate-600 bg-transparent custom-checkbox cursor-pointer">
+                        <div class="flex-1">
+                            <span class="${todo.completed ? 'line-through text-slate-500' : 'text-slate-200'} transition-all">${todo.text}</span>
+                            ${reminderText}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="text-[10px] uppercase px-2 py-0.5 rounded border ${priorityColors[todo.priority]}">
+                            ${todo.priority}
+                        </span>
+                        <button onclick="deleteTodo(${todo.id})" class="text-slate-500 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        // Erinnerungs-Logik
+        function startReminderInterval() {
+            setInterval(() => {
+                const now = new Date();
+                let changed = false;
+
+                todos.forEach(todo => {
+                    if (todo.reminder && !todo.completed && !todo.notified) {
+                        const reminderDate = new Date(todo.reminder);
+                        if (now >= reminderDate) {
+                            triggerNotification(todo);
+                            todo.notified = true;
+                            changed = true;
+                        }
+                    }
+                });
+
+                if (changed) saveAndRender();
+            }, 10000); // Prüft alle 10 Sekunden
+        }
+
+        function triggerNotification(todo) {
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification("Aufgabe fällig!", {
+                    body: todo.text,
+                    icon: "https://cdn-icons-png.flaticon.com/512/906/906334.png"
+                });
+            } else {
+                showCustomAlert(todo.text);
+            }
+        }
+
+        function showCustomAlert(text) {
+            document.getElementById('alert-text').innerText = text;
+            document.getElementById('custom-alert').classList.remove('hidden');
+        }
+
+        function closeAlert() {
+            document.getElementById('custom-alert').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
+
