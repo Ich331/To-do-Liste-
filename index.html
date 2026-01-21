@@ -3,266 +3,352 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fokus Liste - Deine Aufgaben</title>
+    <title>SyncPlanner | Secure Task Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+        /* Custom Scrollbar für Webkit (Chrome/Brave etc.) */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
         
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #0f172a;
-            color: #f1f5f9;
-        }
-
-        .glass-card {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .custom-checkbox:checked {
-            background-color: #3b82f6;
-            border-color: #3b82f6;
-        }
-
-        /* Versteckt Scrollbars für ein cleanereres Design */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #0f172a;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #334155;
-            border-radius: 10px;
-        }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        
+        body { background-color: #111827; color: #e5e7eb; font-family: 'Inter', sans-serif; }
     </style>
 </head>
-<body class="min-h-screen p-4 md:p-8">
+<body>
 
-    <div class="max-w-2xl mx-auto">
-        <!-- Header -->
-        <header class="mb-8 flex justify-between items-center">
+<div id="app" class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div v-if="loading" class="fixed inset-0 bg-gray-900 flex items-center justify-center z-50">
+        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+    </div>
+
+    <div v-if="!session" class="w-full max-w-md bg-gray-800 rounded-xl shadow-2xl p-8 border border-gray-700 fade-enter-active">
+        <h1 class="text-3xl font-bold text-center mb-2 text-white">SyncPlanner</h1>
+        <p class="text-gray-400 text-center mb-6 text-sm">End-to-End Encrypted Workflow</p>
+        
+        <form @submit.prevent="handleLogin" class="space-y-4">
             <div>
-                <h1 class="text-3xl font-bold tracking-tight text-white">Aufgaben</h1>
-                <p id="date-display" class="text-slate-400 text-sm"></p>
+                <label class="block text-sm font-medium text-gray-300">E-Mail (Anonym möglich)</label>
+                <input v-model="email" type="email" required class="mt-1 w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 text-white outline-none transition">
             </div>
-            <div id="stats" class="text-right">
-                <span class="text-blue-400 font-semibold" id="pending-count">0</span>
-                <span class="text-slate-500 text-sm"> offen</span>
+            <div>
+                 <label class="block text-sm font-medium text-gray-300">Passwort</label>
+                 <input v-model="password" type="password" required class="mt-1 w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 text-white outline-none transition">
             </div>
-        </header>
+            <button type="submit" :disabled="authLoading" class="w-full py-2 px-4 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white font-semibold shadow-lg transform transition active:scale-95 disabled:opacity-50">
+                {{ authLoading ? 'Verarbeite...' : 'Einloggen / Registrieren' }}
+            </button>
+            <p class="text-xs text-center text-gray-500 mt-4">Neue Nutzer werden automatisch registriert.</p>
+        </form>
+    </div>
 
-        <!-- Input Area -->
-        <div class="glass-card rounded-2xl p-6 mb-8 shadow-xl">
-            <div class="flex flex-col gap-4">
-                <input type="text" id="todo-input" 
-                    placeholder="Was steht an?" 
-                    class="bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white transition-all">
-                
-                <div class="flex flex-wrap gap-3 items-center justify-between">
-                    <div class="flex gap-2">
-                        <input type="datetime-local" id="todo-reminder" 
-                            class="bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-500">
-                        
-                        <select id="todo-priority" class="bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none">
-                            <option value="low">Niedrig</option>
-                            <option value="medium" selected>Mittel</option>
-                            <option value="high">Hoch</option>
-                        </select>
-                    </div>
+    <div v-else class="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-3 gap-6 fade-enter-active">
+        
+        <div class="lg:col-span-3 flex justify-between items-center bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <div>
+                <h2 class="text-xl font-bold text-white">Dashboard</h2>
+                <p class="text-sm text-gray-400">Angemeldet als: {{ session.user.email }}</p>
+            </div>
+            <button @click="handleLogout" class="px-4 py-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg border border-red-500/20 transition text-sm">
+                Abmelden
+            </button>
+        </div>
+
+        <div class="lg:col-span-2 bg-gray-800 rounded-xl border border-gray-700 p-6 shadow-xl">
+            <div class="flex justify-between items-center mb-6">
+                <button @click="changeMonth(-1)" class="p-2 hover:bg-gray-700 rounded-full text-gray-400"><i class="fas fa-chevron-left"></i></button>
+                <h3 class="text-lg font-semibold text-white">{{ currentMonthName }} {{ currentYear }}</h3>
+                <button @click="changeMonth(1)" class="p-2 hover:bg-gray-700 rounded-full text-gray-400"><i class="fas fa-chevron-right"></i></button>
+            </div>
+
+            <div class="grid grid-cols-7 gap-2 mb-2">
+                <div v-for="day in weekDays" class="text-center text-xs font-bold text-gray-500 uppercase">{{ day }}</div>
+            </div>
+            <div class="grid grid-cols-7 gap-2">
+                <div v-for="(date, index) in calendarDays" :key="index" 
+                     @click="selectDate(date)"
+                     :class="['h-24 p-2 rounded-lg border border-gray-700/50 flex flex-col transition cursor-pointer relative overflow-hidden', 
+                              isToday(date) ? 'bg-indigo-900/30 border-indigo-500/50' : 'bg-gray-700/30 hover:bg-gray-700/50',
+                              isSelected(date) ? 'ring-2 ring-indigo-500' : '',
+                              !date.currentMonth ? 'opacity-30' : '']">
                     
-                    <button onclick="addTodo()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl font-semibold transition-colors shadow-lg shadow-blue-900/20 active:scale-95">
-                        Hinzufügen
+                    <span class="text-sm font-medium" :class="isToday(date) ? 'text-indigo-400' : 'text-gray-300'">
+                        {{ date.day }}
+                    </span>
+                    
+                    <div class="mt-auto flex flex-wrap gap-1">
+                        <div v-for="todo in getTodosForDate(date)" :key="todo.id"
+                             :class="['w-2 h-2 rounded-full', todo.completed ? 'bg-green-500' : 'bg-red-500']"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 rounded-xl border border-gray-700 p-6 shadow-xl flex flex-col h-[600px]">
+            <h3 class="text-xl font-bold mb-4 flex items-center gap-2">
+                <span class="text-indigo-400">{{ selectedDate ? formatDate(selectedDate) : 'Alle Aufgaben' }}</span>
+            </h3>
+
+            <form @submit.prevent="addTodo" class="flex gap-2 mb-6">
+                <input v-model="newTask" type="text" placeholder="Neue Aufgabe..." required
+                       class="flex-1 px-4 py-2 bg-gray-900 border border-gray-600 rounded-lg focus:ring-1 focus:ring-indigo-500 text-white outline-none">
+                <input v-model="newTaskTime" type="time" required
+                       class="px-2 py-2 bg-gray-900 border border-gray-600 rounded-lg text-white outline-none">
+                <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white transition">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </form>
+
+            <div class="flex-1 overflow-y-auto space-y-3 pr-2">
+                <div v-if="filteredTodos.length === 0" class="text-center text-gray-500 mt-10">
+                    <p>Keine Aufgaben für diesen Tag.</p>
+                </div>
+
+                <div v-for="todo in filteredTodos" :key="todo.id" 
+                     class="group flex items-center justify-between p-3 bg-gray-700/40 rounded-lg border border-gray-700 hover:border-gray-500 transition">
+                    
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <button @click="toggleTodo(todo)" 
+                                :class="['w-5 h-5 rounded border flex items-center justify-center transition', 
+                                         todo.completed ? 'bg-green-500 border-green-500' : 'border-gray-400 hover:border-indigo-400']">
+                            <i v-if="todo.completed" class="fas fa-check text-xs text-white"></i>
+                        </button>
+                        <div class="flex flex-col overflow-hidden">
+                            <span :class="['truncate text-sm', todo.completed ? 'text-gray-500 line-through' : 'text-gray-200']">{{ todo.task }}</span>
+                            <span class="text-xs text-gray-500 flex items-center gap-1">
+                                <i class="far fa-clock"></i> {{ formatTime(todo.due_date) }}
+                            </span>
+                        </div>
+                    </div>
+
+                    <button @click="deleteTodo(todo.id)" class="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition px-2">
+                        <i class="fas fa-trash"></i>
                     </button>
                 </div>
             </div>
         </div>
 
-        <!-- Notification Request -->
-        <div id="notif-banner" class="hidden mb-6 p-4 bg-amber-900/30 border border-amber-700/50 rounded-xl flex justify-between items-center">
-            <span class="text-amber-200 text-sm">Erinnerungen aktivieren?</span>
-            <button onclick="requestNotificationPermission()" class="text-xs bg-amber-700 hover:bg-amber-600 px-3 py-1 rounded-md text-white transition-colors">Aktivieren</button>
-        </div>
-
-        <!-- List Container -->
-        <div id="todo-list" class="space-y-3">
-            <!-- Items werden hier dynamisch eingefügt -->
-        </div>
     </div>
+</div>
 
-    <!-- Custom Modal for Notifications (Fallback) -->
-    <div id="custom-alert" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden flex items-center justify-center z-50 p-4">
-        <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-sm w-full shadow-2xl">
-            <h3 class="text-xl font-bold mb-2 text-blue-400">Erinnerung!</h3>
-            <p id="alert-text" class="text-slate-300 mb-6"></p>
-            <button onclick="closeAlert()" class="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded-xl font-medium transition-colors">Schließen</button>
-        </div>
-    </div>
+<script>
+    const { createApp, ref, computed, onMounted, watch } = Vue;
 
-    <script>
-        let todos = JSON.parse(localStorage.getItem('my_todos')) || [];
+    // ------------------------------------------------------------------
+    // KONFIGURATION: HIER DEINE DATEN EINFÜGEN
+    // ------------------------------------------------------------------
+    const SUPABASE_URL = 'postgresql://postgres:[YOUR-PASSWORD]@db.ojidispbbtonpgceawne.supabase.co:5432/postgres';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qaWRpc3BiYnRvbnBnY2Vhd25lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkwMTc4NTcsImV4cCI6MjA4NDU5Mzg1N30.9Tyw_eew3UrTwsIf-t_DSZ_txsnVlSZTN0SNH1WCq1E';
+    // ------------------------------------------------------------------
 
-        // Initialisierung
-        window.onload = () => {
-            updateDate();
-            renderTodos();
-            checkNotificationPermission();
-            startReminderInterval();
-        };
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        function updateDate() {
-            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-            document.getElementById('date-display').innerText = new Date().toLocaleDateString('de-DE', options);
-        }
+    createApp({
+        setup() {
+            const loading = ref(true);
+            const authLoading = ref(false);
+            const session = ref(null);
+            const email = ref('');
+            const password = ref('');
+            const todos = ref([]);
+            
+            // Calendar State
+            const currentDate = ref(new Date());
+            const selectedDate = ref(new Date());
+            const weekDays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+            
+            // New Task State
+            const newTask = ref('');
+            const newTaskTime = ref('12:00');
 
-        function checkNotificationPermission() {
-            if ("Notification" in window && Notification.permission !== "granted") {
-                document.getElementById('notif-banner').classList.remove('hidden');
-            }
-        }
+            // --- AUTHENTICATION ---
+            onMounted(() => {
+                supabase.auth.getSession().then(({ data }) => {
+                    session.value = data.session;
+                    if (session.value) fetchTodos();
+                    loading.value = false;
+                });
 
-        async function requestNotificationPermission() {
-            if ("Notification" in window) {
-                const permission = await Notification.requestPermission();
-                if (permission === "granted") {
-                    document.getElementById('notif-banner').classList.add('hidden');
+                supabase.auth.onAuthStateChange((_event, _session) => {
+                    session.value = _session;
+                    if (_session) fetchTodos();
+                });
+
+                // Request Notification Permission
+                if (Notification.permission !== "granted") {
+                    Notification.requestPermission();
                 }
-            }
-        }
+                
+                // Notification Loop
+                setInterval(checkNotifications, 60000); 
+            });
 
-        function addTodo() {
-            const input = document.getElementById('todo-input');
-            const reminder = document.getElementById('todo-reminder');
-            const priority = document.getElementById('todo-priority');
-
-            if (!input.value.trim()) return;
-
-            const newTodo = {
-                id: Date.now(),
-                text: input.value,
-                completed: false,
-                reminder: reminder.value || null,
-                priority: priority.value,
-                notified: false
+            const handleLogin = async () => {
+                authLoading.value = true;
+                // Versuche Login, wenn fail, dann Registrierung (vereinfachter Flow)
+                const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.value, password: password.value });
+                if (signInError) {
+                    const { error: signUpError } = await supabase.auth.signUp({ email: email.value, password: password.value });
+                    if (signUpError) alert("Fehler: " + signUpError.message);
+                    else alert("Registrierung erfolgreich! Bitte logge dich ein.");
+                }
+                authLoading.value = false;
             };
 
-            todos.unshift(newTodo);
-            saveAndRender();
-            
-            input.value = '';
-            reminder.value = '';
-            priority.value = 'medium';
-        }
+            const handleLogout = async () => {
+                await supabase.auth.signOut();
+                todos.value = [];
+            };
 
-        function toggleTodo(id) {
-            todos = todos.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
-            saveAndRender();
-        }
+            // --- DATABASE ---
+            const fetchTodos = async () => {
+                const { data, error } = await supabase
+                    .from('todos')
+                    .select('*')
+                    .order('due_date', { ascending: true });
+                if (error) console.error('Error fetching:', error);
+                else todos.value = data;
+            };
 
-        function deleteTodo(id) {
-            todos = todos.filter(t => t.id !== id);
-            saveAndRender();
-        }
-
-        function saveAndRender() {
-            localStorage.setItem('my_todos', JSON.stringify(todos));
-            renderTodos();
-        }
-
-        function renderTodos() {
-            const list = document.getElementById('todo-list');
-            const pendingCount = document.getElementById('pending-count');
-            list.innerHTML = '';
-
-            const activeTodos = todos.filter(t => !t.completed);
-            pendingCount.innerText = activeTodos.length;
-
-            if (todos.length === 0) {
-                list.innerHTML = `<div class="text-center py-10 text-slate-500 italic">Keine Aufgaben vorhanden.</div>`;
-                return;
-            }
-
-            todos.forEach(todo => {
-                const priorityColors = {
-                    low: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-                    medium: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-                    high: 'bg-red-500/20 text-red-400 border-red-500/30'
-                };
-
-                const item = document.createElement('div');
-                item.className = `glass-card p-4 rounded-xl flex items-center justify-between group transition-all ${todo.completed ? 'opacity-50' : ''}`;
+            const addTodo = async () => {
+                if (!newTask.value) return;
                 
-                const reminderText = todo.reminder ? 
-                    `<span class="text-[10px] mt-1 block text-slate-500">⏰ ${new Date(todo.reminder).toLocaleString('de-DE', {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit'})}</span>` 
-                    : '';
+                // Datum + Zeit kombinieren
+                const d = new Date(selectedDate.value);
+                const [hours, minutes] = newTaskTime.value.split(':');
+                d.setHours(parseInt(hours), parseInt(minutes));
 
-                item.innerHTML = `
-                    <div class="flex items-center gap-4 flex-1">
-                        <input type="checkbox" ${todo.completed ? 'checked' : ''} 
-                            onchange="toggleTodo(${todo.id})"
-                            class="w-5 h-5 rounded-full border-slate-600 bg-transparent custom-checkbox cursor-pointer">
-                        <div class="flex-1">
-                            <span class="${todo.completed ? 'line-through text-slate-500' : 'text-slate-200'} transition-all">${todo.text}</span>
-                            ${reminderText}
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <span class="text-[10px] uppercase px-2 py-0.5 rounded border ${priorityColors[todo.priority]}">
-                            ${todo.priority}
-                        </span>
-                        <button onclick="deleteTodo(${todo.id})" class="text-slate-500 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                        </button>
-                    </div>
-                `;
-                list.appendChild(item);
+                const { data, error } = await supabase
+                    .from('todos')
+                    .insert([{ 
+                        user_id: session.value.user.id,
+                        task: newTask.value,
+                        due_date: d.toISOString(),
+                        completed: false
+                    }])
+                    .select();
+
+                if (error) {
+                    alert('Fehler beim Speichern. Check deine Datenbank Policies.');
+                } else {
+                    todos.value.push(data[0]);
+                    newTask.value = '';
+                }
+            };
+
+            const toggleTodo = async (todo) => {
+                todo.completed = !todo.completed;
+                await supabase.from('todos').update({ completed: todo.completed }).eq('id', todo.id);
+            };
+
+            const deleteTodo = async (id) => {
+                todos.value = todos.value.filter(t => t.id !== id);
+                await supabase.from('todos').delete().eq('id', id);
+            };
+
+            // --- CALENDAR LOGIC ---
+            const currentYear = computed(() => currentDate.value.getFullYear());
+            const currentMonthName = computed(() => currentDate.value.toLocaleString('de-DE', { month: 'long' }));
+
+            const calendarDays = computed(() => {
+                const year = currentDate.value.getFullYear();
+                const month = currentDate.value.getMonth();
+                const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 = So, 1 = Mo
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                
+                // Adjust for Monday start (German standard)
+                const startOffset = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
+                
+                const days = [];
+                // Previous month padding
+                for (let i = 0; i < startOffset; i++) {
+                    days.push({ day: '', currentMonth: false });
+                }
+                // Current days
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const d = new Date(year, month, i);
+                    days.push({ 
+                        day: i, 
+                        dateObj: d,
+                        currentMonth: true 
+                    });
+                }
+                return days;
             });
-        }
 
-        // Erinnerungs-Logik
-        function startReminderInterval() {
-            setInterval(() => {
+            const changeMonth = (delta) => {
+                currentDate.value = new Date(currentDate.value.setMonth(currentDate.value.getMonth() + delta));
+            };
+
+            const selectDate = (dateInfo) => {
+                if (dateInfo.dateObj) selectedDate.value = dateInfo.dateObj;
+            };
+
+            const isToday = (dateInfo) => {
+                if (!dateInfo.dateObj) return false;
+                const today = new Date();
+                return dateInfo.dateObj.toDateString() === today.toDateString();
+            };
+
+            const isSelected = (dateInfo) => {
+                if (!dateInfo.dateObj) return false;
+                return dateInfo.dateObj.toDateString() === selectedDate.value.toDateString();
+            };
+
+            // --- FILTERING & HELPERS ---
+            const getTodosForDate = (dateInfo) => {
+                if (!dateInfo.dateObj) return [];
+                return todos.value.filter(t => {
+                    const d = new Date(t.due_date);
+                    return d.toDateString() === dateInfo.dateObj.toDateString();
+                });
+            };
+
+            const filteredTodos = computed(() => {
+                return getTodosForDate({ dateObj: selectedDate.value });
+            });
+
+            const formatDate = (date) => {
+                return date.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long' });
+            };
+            
+            const formatTime = (isoString) => {
+                return new Date(isoString).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            };
+
+            // --- NOTIFICATIONS ---
+            const checkNotifications = () => {
+                if (Notification.permission !== "granted") return;
                 const now = new Date();
-                let changed = false;
-
-                todos.forEach(todo => {
-                    if (todo.reminder && !todo.completed && !todo.notified) {
-                        const reminderDate = new Date(todo.reminder);
-                        if (now >= reminderDate) {
-                            triggerNotification(todo);
-                            todo.notified = true;
-                            changed = true;
-                        }
+                todos.value.forEach(t => {
+                    if (t.completed) return;
+                    const due = new Date(t.due_date);
+                    const diff = due - now;
+                    // Trigger if due within last minute (simple check)
+                    if (diff < 0 && diff > -60000) {
+                        new Notification("Aufgabe fällig!", { body: t.task });
                     }
                 });
+            };
 
-                if (changed) saveAndRender();
-            }, 10000); // Prüft alle 10 Sekunden
+            return {
+                loading, authLoading, session, email, password,
+                handleLogin, handleLogout,
+                currentYear, currentMonthName, calendarDays, changeMonth, weekDays,
+                selectDate, isToday, isSelected, getTodosForDate,
+                selectedDate, formatDate, formatTime,
+                newTask, newTaskTime, addTodo, toggleTodo, deleteTodo, filteredTodos
+            };
         }
-
-        function triggerNotification(todo) {
-            if ("Notification" in window && Notification.permission === "granted") {
-                new Notification("Aufgabe fällig!", {
-                    body: todo.text,
-                    icon: "https://cdn-icons-png.flaticon.com/512/906/906334.png"
-                });
-            } else {
-                showCustomAlert(todo.text);
-            }
-        }
-
-        function showCustomAlert(text) {
-            document.getElementById('alert-text').innerText = text;
-            document.getElementById('custom-alert').classList.remove('hidden');
-        }
-
-        function closeAlert() {
-            document.getElementById('custom-alert').classList.add('hidden');
-        }
-    </script>
+    }).mount('#app');
+</script>
 </body>
 </html>
-
